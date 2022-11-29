@@ -1,0 +1,19 @@
+steps:
+- task: PowerShell@2
+  inputs:
+    targetType: 'inline'
+    script: |
+       $HTMLDATA = Get-Content "$(Build.SourcesDirectory)\test.html" -Raw
+       $jsonValue=ConvertTo-Json("$HTMLDATA")
+       $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+       $headers.Add("Authorization", "Bearer SG.ddsdhdshkdkjjkhjhjhdhdhashjhdjhdhsjdhhdddsjdhsdhskjdhdjshdsjdhsdhd")
+       $headers.Add("Content-Type", "application/json")
+       $body = "{
+       `n  `"template_id`": `"d-3h3h3h3h333hhh333hnnnjj3333ewe3878dnd`",
+       `n  `"active`": 1,
+       `n  `"name`": `"test 1.0`",
+       `n  `"html_content`": $jsonValue,
+       `n  `"subject`": `"no-reply`",
+       `n  `"editor`": `"code`"
+       `n}"
+       $response = Invoke-RestMethod 'https://api.sendgrid.com/v3/templates/d-3h3h3h3h333hhh333hnnnjj3333ewe3878dnd/versions' -Method 'POST' -Headers $headers -Body $body
