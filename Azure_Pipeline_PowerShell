@@ -1,19 +1,64 @@
-steps:
-- task: PowerShell@2
-  inputs:
-    targetType: 'inline'
-    script: |
-       $HTMLDATA = Get-Content "$(Build.SourcesDirectory)\test.html" -Raw
-       $jsonValue=ConvertTo-Json("$HTMLDATA")
-       $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-       $headers.Add("Authorization", "Bearer SG.ddsdhdshkdkjjkhjhjhdhdhashjhdjhdhsjdhhdddsjdhsdhskjdhdjshdsjdhsdhd")
-       $headers.Add("Content-Type", "application/json")
-       $body = "{
-       `n  `"template_id`": `"d-3h3h3h3h333hhh333hnnnjj3333ewe3878dnd`",
-       `n  `"active`": 1,
-       `n  `"name`": `"test 1.0`",
-       `n  `"html_content`": $jsonValue,
-       `n  `"subject`": `"no-reply`",
-       `n  `"editor`": `"code`"
-       `n}"
-       $response = Invoke-RestMethod 'https://api.sendgrid.com/v3/templates/d-3h3h3h3h333hhh333hnnnjj3333ewe3878dnd/versions' -Method 'POST' -Headers $headers -Body $body
+stages:
+- stage: Update_Version
+  condition: eq(variables.update_version, 'true')
+  jobs:
+  - job: Update_Version
+    steps:
+        - task: PowerShell@2
+          displayName: Update_Version
+          inputs:
+            targetType: 'inline'
+            script: |
+              $HTMLDATA = Get-Content "$(Build.SourcesDirectory)\$(template_name).html" -Raw
+              $jsonValue=ConvertTo-Json("$HTMLDATA")
+              $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+              $headers.Add("Authorization", "$(sendgridtoken)")
+              $headers.Add("Content-Type", "application/json")
+              $body = "{
+              `n  `"template_id`": `"$(template_id)`",
+              `n  `"active`": 1,
+              `n  `"name`": `"$(template_name)`",
+              `n  `"html_content`": $jsonValue,
+              `n  `"subject`": `"$(email_subject)`",
+              `n  `"editor`": `"code`"
+              `n}"
+              $response = Invoke-RestMethod '$(url)/$(template_id)/versions' -Method 'POST' -Headers $headers -Body $body
+
+#########################################################################################################
+- stage: New_Templates
+  condition: eq(variables.new_templates, 'true')
+
+  jobs:
+  - job: New_Templates
+    steps:
+        - task: PowerShell@2
+          displayName: New_Template
+          inputs:
+            targetType: 'inline'
+            script: |
+              $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+              $headers.Add("Authorization", "$(sendgridtoken)")
+              $headers.Add("Content-Type", "application/json")
+              $body = "{
+              `n  `"name`": `"$(template_name)`",
+              `n  `"generation`": `"dynamic`"
+              `n}"
+              $response = Invoke-RestMethod '$(url)' -Method 'POST' -Headers $headers -Body $body
+
+#########################################################################################################
+- stage: Template_Details
+  condition: eq(variables.template_details, 'true')
+  jobs:
+  - job: Template_Details
+    steps:
+        - task: PowerShell@2
+          displayName: Template_Details
+          inputs:
+            targetType: 'inline'
+            script: |
+              $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+              $headers.Add("Authorization", "$(sendgridtoken)")
+              $response = Invoke-RestMethod '$(url)/$(template_id)' -Method 'GET' -Headers $headers
+              $response
+
+#########################################################################################################
