@@ -1,0 +1,121 @@
+trigger: none
+
+parameters:
+- name: environmentName
+  type: string
+  values:
+  - shared
+  - func
+  - int
+  - nfr
+
+stages:
+  - stage: deploy2${{ parameters.environmentName }}
+    displayName: deploy to ${{ parameters.environmentName }}
+
+    variables:
+      - group: _env_${{ parameters.environmentName }}
+      - group: _env_${{ parameters.environmentName }}_not_secret
+    pool: 'dockerAgents'
+
+
+    jobs:
+    - job: Update_Templates
+      steps:
+        - task: PowerShell@2
+          displayName: Search_Templates
+          inputs:
+            targetType: 'inline'
+            script: |
+              Write-Host "Template Searching in Local Files and SendGrid..."
+              $templates = Invoke-RestMethod -Method Get -Uri "$(sendgridUrl)?generations=dynamic" -Header @{ "Authorization" = "$(sendgrid-template-apikey)" }
+              $templateIdsAndNames = $templates.templates | Select-Object id, name
+              $template_id = $templateIdsAndNames | Where-Object { $_.Name -eq '$(template_name)' }  | Select-Object -ExpandProperty ID
+
+              if ([string]::IsNullOrEmpty($template_id)) {
+                  Write-Output "Template '$(template_name)' not found in SendGrid. Searching in Local files..."
+
+                  $templateFilePath = "$(Build.SourcesDirectory)\templates\$(template_name).html"
+                  if (Test-Path $templateFilePath) {
+                      Write-Output "Template '$(template_name)' is available in local files."
+                      Write-Output "Using template local file name '$(template_name)' to create template in SendGrid."
+                      $template_name = Get-Content $templateFilePath -Raw
+                  } else {
+                      Write-Error "Template '$(template_name)' not found in SendGrid and local files. Add proper template name."
+                      exit
+                  }
+              
+              $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+              $headers.Add("Authorization", "$(sendgrid-template-apikey)")
+              $headers.Add("Content-Type", "application/json")
+              $body = "{
+              `n  `"name`": `"$(template_name)`",
+              `n  `"generation`": `"dynamic`"
+              `n}"
+              try {
+              $response = Invoke-RestMethod "$(sendgridUrl)" -Method 'POST' -Headers $headers -Body $body
+              } catch {
+              write-host "Exception:" $_
+              Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
+              Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+              Exit 1
+              }
+
+              Write-Output "Template created with ID $($response.id)"
+              
+              } else {
+              Write-Output "Template '$(template_name)' found in SendGrid with ID $template_id"
+              }
+              $response
+        - task: PowerShell@2
+          displayName: Update_Template
+          inputs:
+            targetType: 'inline'
+            script: |
+              $templates = Invoke-RestMethod -Method Get -Uri "$(sendgridUrl)?generations=dynamic" -Header @{ "Authorization" = "$(sendgrid-template-apikey)" }
+              $templateIdsAndNames = $templates.templates | Select-Object id, name
+              $template_id = $templateIdsAndNames | Where-Object { $_.Name -eq '$(template_name)' }  | Select-Object -ExpandProperty ID
+              if ([string]::IsNullOrEmpty($template_id)) {
+              Write-Error "Template $(template_name) not found. Add proper template name."
+              exit
+              }
+              write-output $template_id
+              $branchName = $env:BUILD_SOURCEBRANCHNAME
+              $HTMLDATA = Get-Content "$(Build.SourcesDirectory)\templates\$(template_name).html" -Raw
+              $jsonValue=ConvertTo-Json("$HTMLDATA")
+              $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
+              $headers.Add("Authorization", "$(sendgrid-template-apikey)")
+              $headers.Add("Content-Type", "application/json")
+              $body = "{
+              `n  `"active`": $(active),
+              `n  `"name`": `"$branchName`",
+              `n  `"html_content`": $jsonValue,
+              `n  `"subject`": `"$(email_subject)`",
+              `n  `"editor`": `"code`"
+              `n}"
+              try {
+              $response = Invoke-RestMethod "$(sendgridUrl)/$template_id/versions" -Method 'POST' -Headers $headers -Body $body  -ContentType 'text/plain; charset=utf-8' 
+              } catch {
+              write-host "Exception:" $_
+              Write-Host "StatusCode:" $_.Exception.Response.StatusCode.value__ 
+              Write-Host "StatusDescription:" $_.Exception.Response.StatusDescription
+              Exit 1
+              }
+              $response
+        - task: CopyFiles@2
+          inputs:
+            SourceFolder: "$(Build.SourcesDirectory)/templates/"
+            Contents: "$(template_name).html"
+            TargetFolder: "$(Build.ArtifactStagingDirectory)"
+          displayName: 'Copy Artifact'
+        - task: PublishBuildArtifacts@1
+          inputs:
+            pathToPublish: '$(Build.ArtifactStagingDirectory)'
+            artifactName: drop
+          displayName: 'Publish Artifact'
+
+        - task: Bash@3
+          inputs:
+            targetType: 'inline'
+            script: 'rm -rf "$(Agent.BuildDirectory)"'
+          displayName: 'Clean Workspace'
