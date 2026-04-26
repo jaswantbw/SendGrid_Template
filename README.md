@@ -1,1 +1,1 @@
-# SendGrid_Template
+# SendGrid_Template Manual
